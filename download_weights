@@ -1,0 +1,11 @@
+from datasets import load_dataset
+import os
+#ds = load_dataset("fka/awesome-chatgpt-prompts")
+#ds = load_dataset("BoyangZ/VisualGenome_VG_100K_1_and_2")
+#print(ds.cache_files)
+
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id="meta-llama/Llama-2-7b-chat",
+                  cache_dir="/home/djm/LLaVa/checkpoints/",
+                  local_dir_use_symlinks=False, resume_download=True,
+                  token='hf_***')
