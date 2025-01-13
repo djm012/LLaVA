@@ -1028,45 +1028,45 @@ class LlamaModel(LlamaPreTrainedModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = None
 
-        for decoder_layer in self.layers:
-            if output_hidden_states:
-                all_hidden_states += (hidden_states,)
+        # for decoder_layer in self.layers:
+        #     if output_hidden_states:
+        #         all_hidden_states += (hidden_states,)
 
-            if self.gradient_checkpointing and self.training:
-                layer_outputs = self._gradient_checkpointing_func(
-                    decoder_layer.__call__,
-                    hidden_states,
-                    causal_mask,
-                    position_ids,
-                    past_key_values,
-                    output_attentions,
-                    use_cache,
-                    cache_position,
-                    position_embeddings,
-                )
-            else: # 测试阶段
-                layer_outputs = decoder_layer(
-                    # hidden_states,
-                    # attention_mask=causal_mask,
-                    # position_ids=position_ids,
-                    # past_key_value=past_key_values,
-                    # output_attentions=output_attentions,
-                    # use_cache=use_cache,
-                    # cache_position=cache_position,
-                    # position_embeddings=position_embeddings,
-                    hidden_states,
-                    past_key_value=past_key_values,
-                    attn_bias=None,
-                    attention_mask=causal_mask,
-                    is_causal=None,
-                )
+        #     if self.gradient_checkpointing and self.training:
+        #         layer_outputs = self._gradient_checkpointing_func(
+        #             decoder_layer.__call__,
+        #             hidden_states,
+        #             causal_mask,
+        #             position_ids,
+        #             past_key_values,
+        #             output_attentions,
+        #             use_cache,
+        #             cache_position,
+        #             position_embeddings,
+        #         )
+            # else: # 测试阶段
+            #     layer_outputs = decoder_layer(
+            #         # hidden_states,
+            #         # attention_mask=causal_mask,
+            #         # position_ids=position_ids,
+            #         # past_key_value=past_key_values,
+            #         # output_attentions=output_attentions,
+            #         # use_cache=use_cache,
+            #         # cache_position=cache_position,
+            #         # position_embeddings=position_embeddings,
+            #         hidden_states,
+            #         past_key_value=past_key_values,
+            #         attn_bias=None,
+            #         attention_mask=causal_mask,
+            #         is_causal=None,
+            #     )
 
-            hidden_states = layer_outputs[0]
+            # hidden_states = layer_outputs[0]
 
-            if use_cache:
-                next_decoder_cache = layer_outputs[2 if output_attentions else 1]
-            if output_attentions:
-                all_self_attns += (layer_outputs[1],)
+            # if use_cache:
+            #     next_decoder_cache = layer_outputs[2 if output_attentions else 1]
+            # if output_attentions:
+            #     all_self_attns += (layer_outputs[1],)
         
         prepare_cache(self.layers, inputs_embeds.shape[1])
 
