@@ -1,0 +1,63 @@
+LlavaLlamaForCausalLM(
+  (model): LlavaLlamaModel(
+    (embed_tokens): Embedding(32000, 5120, padding_idx=0)
+    (layers): ModuleList(
+      (0-39): 40 x LlamaDecoderLayer(
+        (self_attn): LlamaSdpaAttention(
+          (q_proj): Linear(in_features=5120, out_features=5120, bias=False)
+          (k_proj): Linear(in_features=5120, out_features=5120, bias=False)
+          (v_proj): Linear(in_features=5120, out_features=5120, bias=False)
+          (o_proj): Linear(in_features=5120, out_features=5120, bias=False)
+          (rotary_emb): LlamaRotaryEmbedding()
+        )
+        (mlp): LlamaMLP(
+          (gate_proj): Linear(in_features=5120, out_features=13824, bias=False)
+          (up_proj): Linear(in_features=5120, out_features=13824, bias=False)
+          (down_proj): Linear(in_features=13824, out_features=5120, bias=False)
+          (act_fn): SiLU()
+        )
+        (input_layernorm): LlamaRMSNorm((5120,), eps=1e-05)
+        (post_attention_layernorm): LlamaRMSNorm((5120,), eps=1e-05)
+      )
+    )
+    (norm): LlamaRMSNorm((5120,), eps=1e-05)
+    (rotary_emb): LlamaRotaryEmbedding()
+    (vision_tower): CLIPVisionTower(
+      (vision_tower): CLIPVisionModel(
+        (vision_model): CLIPVisionTransformer(
+          (embeddings): CLIPVisionEmbeddings(
+            (patch_embedding): Conv2d(3, 1024, kernel_size=(14, 14), stride=(14, 14), bias=False)
+            (position_embedding): Embedding(577, 1024)
+          )
+          (pre_layrnorm): LayerNorm((1024,), eps=1e-05, elementwise_affine=True)
+          (encoder): CLIPEncoder(
+            (layers): ModuleList(
+              (0-23): 24 x CLIPEncoderLayer(
+                (self_attn): CLIPSdpaAttention(
+                  (k_proj): Linear(in_features=1024, out_features=1024, bias=True)
+                  (v_proj): Linear(in_features=1024, out_features=1024, bias=True)
+                  (q_proj): Linear(in_features=1024, out_features=1024, bias=True)
+                  (out_proj): Linear(in_features=1024, out_features=1024, bias=True)
+                )
+                (layer_norm1): LayerNorm((1024,), eps=1e-05, elementwise_affine=True)
+                (mlp): CLIPMLP(
+                  (activation_fn): QuickGELUActivation()
+                  (fc1): Linear(in_features=1024, out_features=4096, bias=True)
+                  (fc2): Linear(in_features=4096, out_features=1024, bias=True)
+                )
+                (layer_norm2): LayerNorm((1024,), eps=1e-05, elementwise_affine=True)
+              )
+            )
+          )
+          (post_layernorm): LayerNorm((1024,), eps=1e-05, elementwise_affine=True)
+        )
+      )
+    )
+    (mm_projector): Sequential(
+      (0): Linear(in_features=1024, out_features=5120, bias=True)
+      (1): GELU(approximate='none')
+      (2): Linear(in_features=5120, out_features=5120, bias=True)
+    )
+  )
+  (lm_head): Linear(in_features=5120, out_features=32000, bias=False)
+)
