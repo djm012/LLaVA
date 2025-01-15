@@ -1,0 +1,26 @@
+model_param:LlamaAWQForCausalLM(
+  (model): LlamaForCausalLM(
+    (model): LlamaLikeModel(
+      (embedding): Embedding(32000, 5120, padding_idx=0)
+      (blocks): ModuleList(
+        (0-39): 40 x LlamaLikeBlock(
+          (norm_1): FasterTransformerRMSNorm()
+          (attn): QuantAttentionFused(
+            (qkv_proj): WQLinear_GEMM(in_features=5120, out_features=15360, bias=False, w_bit=4, group_size=128)
+            (o_proj): WQLinear_GEMM(in_features=5120, out_features=5120, bias=False, w_bit=4, group_size=128)
+            (rope): RoPE()
+          )
+          (norm_2): FasterTransformerRMSNorm()
+          (mlp): LlamaMLP(
+            (gate_proj): WQLinear_GEMM(in_features=5120, out_features=13824, bias=False, w_bit=4, group_size=128)
+            (up_proj): WQLinear_GEMM(in_features=5120, out_features=13824, bias=False, w_bit=4, group_size=128)
+            (down_proj): WQLinear_GEMM(in_features=13824, out_features=5120, bias=False, w_bit=4, group_size=128)
+            (act_fn): SiLU()
+          )
+        )
+      )
+      (norm): LlamaRMSNorm((5120,), eps=1e-05)
+    )
+    (lm_head): Linear(in_features=5120, out_features=32000, bias=False)
+  )
+)
