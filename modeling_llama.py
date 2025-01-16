@@ -49,6 +49,7 @@ from ...utils import (
 )
 from .configuration_llama import LlamaConfig
 
+import numpy as np
 # from awq.utils import fused_utils
 
 logger = logging.get_logger(__name__)
@@ -102,6 +103,7 @@ def prepare_input_ids(input_ids: torch.Tensor, last_forward_num_tokens: int):
             input_ids = input_ids[:, -1:]
 
     return input_ids, last_forward_num_tokens + num_new_tokens
+
 def _prepare_4d_causal_attention_mask_with_cache_position(
     attention_mask: torch.Tensor,
     sequence_length: int,
@@ -943,7 +945,7 @@ class LlamaModel(LlamaPreTrainedModel):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
-
+        self.use_awq = True
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList(
             [LlamaDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
@@ -951,6 +953,7 @@ class LlamaModel(LlamaPreTrainedModel):
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
+        self.last_forward_num_tokens = 0
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1015,92 +1018,107 @@ class LlamaModel(LlamaPreTrainedModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self._update_causal_mask(
+
+
+        if self.use_awq:
+
+            inputs_embeds, self.last_forward_num_tokens = prepare_input_ids(inputs_embeds,self.last_forward_num_tokens)
+            print('self.last_forward_num_tokens',self.last_forward_num_tokens)
+
+            prepare_cache(self.layers, inputs_embeds.shape[1])
+
+            hidden_states = inputs_embeds
+
+            mask = prepare_attention_mask(
+                inputs_embeds.shape[1], 
+                self.layers[0].attn.start_pos, 
+                inputs_embeds.device, 
+                hidden_states
+            )
+            for layer in self.layers:
+                hidden_states, mask = prepare_correct_devices(layer, hidden_states, mask)
+                hidden_states, _, _ = layer(hidden_states, None, attention_mask=mask, is_causal=None)
+
+            hidden_states = self.norm(hidden_states)
+            return BaseModelOutputWithPast(
+                last_hidden_state=hidden_states,
+                past_key_values=None,
+                hidden_states=(),
+                attentions=(),
+            )
+        
+        else:
+            causal_mask = self._update_causal_mask(
             attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
-        )
-        hidden_states = inputs_embeds
+            )
+            hidden_states = inputs_embeds
+            # create position embeddings to be shared across the decoder layers
+            position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        # create position embeddings to be shared across the decoder layers
-        position_embeddings = self.rotary_emb(hidden_states, position_ids)
+            # decoder layers
+            all_hidden_states = () if output_hidden_states else None
+            all_self_attns = () if output_attentions else None
+            next_decoder_cache = None
+            for decoder_layer in self.layers:
+                if output_hidden_states:
+                    all_hidden_states += (hidden_states,)
 
-        # decoder layers
-        all_hidden_states = () if output_hidden_states else None
-        all_self_attns = () if output_attentions else None
-        next_decoder_cache = None
+                if self.gradient_checkpointing and self.training:
+                    layer_outputs = self._gradient_checkpointing_func(
+                        decoder_layer.__call__,
+                        hidden_states,
+                        causal_mask,
+                        position_ids,
+                        past_key_values,
+                        output_attentions,
+                        use_cache,
+                        cache_position,
+                        position_embeddings,
+                    )
+                else: # 测试阶段
+                    layer_outputs = decoder_layer(
+                        hidden_states,
+                        attention_mask=causal_mask,
+                        position_ids=position_ids,
+                        past_key_value=past_key_values,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                        cache_position=cache_position,
+                        position_embeddings=position_embeddings,
 
-        # for decoder_layer in self.layers:
-        #     if output_hidden_states:
-        #         all_hidden_states += (hidden_states,)
+                        # hidden_states,
+                        # past_key_value=past_key_values,
+                        # attn_bias=None,
+                        # attention_mask=causal_mask,
+                        # is_causal=None,
+                    )
 
-        #     if self.gradient_checkpointing and self.training:
-        #         layer_outputs = self._gradient_checkpointing_func(
-        #             decoder_layer.__call__,
-        #             hidden_states,
-        #             causal_mask,
-        #             position_ids,
-        #             past_key_values,
-        #             output_attentions,
-        #             use_cache,
-        #             cache_position,
-        #             position_embeddings,
-        #         )
-            # else: # 测试阶段
-            #     layer_outputs = decoder_layer(
-            #         # hidden_states,
-            #         # attention_mask=causal_mask,
-            #         # position_ids=position_ids,
-            #         # past_key_value=past_key_values,
-            #         # output_attentions=output_attentions,
-            #         # use_cache=use_cache,
-            #         # cache_position=cache_position,
-            #         # position_embeddings=position_embeddings,
-            #         hidden_states,
-            #         past_key_value=past_key_values,
-            #         attn_bias=None,
-            #         attention_mask=causal_mask,
-            #         is_causal=None,
-            #     )
+                hidden_states = layer_outputs[0]
 
-            # hidden_states = layer_outputs[0]
-
-            # if use_cache:
-            #     next_decoder_cache = layer_outputs[2 if output_attentions else 1]
-            # if output_attentions:
-            #     all_self_attns += (layer_outputs[1],)
+                if use_cache:
+                    next_decoder_cache = layer_outputs[2 if output_attentions else 1]
+                if output_attentions:
+                    all_self_attns += (layer_outputs[1],)
         
-        prepare_cache(self.layers, inputs_embeds.shape[1])
+            hidden_states = self.norm(hidden_states)
 
-        
-        # print('-----------------start_pos:',self.layers[0].attn.start_pos) # 0
-        # print('-----------------inputs_embeds.shape:',hidden_states.shape) # [[1,664,5120]] awq的shape是[[1,89]]
-        mask = prepare_attention_mask(
-            inputs_embeds.shape[1], 
-            self.layers[0].attn.start_pos, 
-            inputs_embeds.device, 
-            hidden_states
-        )
-        for layer in self.layers:
-            hidden_states, mask = prepare_correct_devices(layer, hidden_states, mask)
-            hidden_states, _, _ = layer(hidden_states, None, attention_mask=mask, is_causal=None)
+            # add hidden states from the last decoder layer
+            if output_hidden_states:
+                all_hidden_states += (hidden_states,)
 
-        hidden_states = self.norm(hidden_states)
-        # add hidden states from the last decoder layer
-        # if output_hidden_states:
-        #     all_hidden_states += (hidden_states,)
+            next_cache = next_decoder_cache if use_cache else None
 
-        # next_cache = next_decoder_cache if use_cache else None
+            if return_legacy_cache:
+                next_cache = next_cache.to_legacy_cache()
 
-        # if return_legacy_cache:
-        #     next_cache = next_cache.to_legacy_cache()
-
-        # if not return_dict:
-        #     return tuple(v for v in [hidden_states, next_cache, all_hidden_states, all_self_attns] if v is not None)
-        return BaseModelOutputWithPast(
-            last_hidden_state=hidden_states,
-            past_key_values=None,
-            hidden_states=(),
-            attentions=(),
-        )
+            if not return_dict:
+                return tuple(v for v in [hidden_states, next_cache, all_hidden_states, all_self_attns] if v is not None)
+            return BaseModelOutputWithPast(
+                last_hidden_state=hidden_states,
+                past_key_values=next_cache,
+                hidden_states=all_hidden_states,
+                attentions=all_self_attns,
+            )
 
     def _update_causal_mask(
         self,
@@ -1266,6 +1284,8 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         )
 
         hidden_states = outputs[0]
+
+
         if self.config.pretraining_tp > 1:
             lm_head_slices = self.lm_head.weight.split(self.vocab_size // self.config.pretraining_tp, dim=0)
             logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(self.config.pretraining_tp)]
@@ -1273,6 +1293,15 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         else:
             logits = self.lm_head(hidden_states)
         logits = logits.float()
+
+        filewrite = open('logits_llava_sample.txt', 'a+')
+        filewrite.write(str(logits))
+        filewrite.write('shape:')
+        filewrite.write(str(logits.shape))
+        filewrite.write('\n==========================================================\n')
+        filewrite.close()
+
+        # print("==========================================================logits",logits)
 
         loss = None
         if labels is not None:
